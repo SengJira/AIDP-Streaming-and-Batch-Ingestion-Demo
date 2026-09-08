@@ -4,7 +4,10 @@ Day-to-day operation of the Kafka event generator and the three Spark
 Structured Streaming jobs that feed the Iceberg tables.
 
 For first-time setup (MySQL, synthetic data, AIDP catalog) see
-[FEDERATED_QUERY_DEMO.md](FEDERATED_QUERY_DEMO.md).
+[FEDERATED_QUERY_DEMO.md](FEDERATED_QUERY_DEMO.md). The batch ingestion job is a
+finite job with its own procedure — see
+[BATCH_INGESTION_DEMO.md](BATCH_INGESTION_DEMO.md); it is independent of the
+streaming jobs and can run whether or not they are up.
 
 **Order matters**
 
@@ -261,6 +264,10 @@ nohup .venv/bin/python generators/Streaming_gen.py \
 
 # CHECK
 python scripts/validate_federated_demo.py
+
+# BATCH (finite job — reference tables and the daily rollup; see
+# docs/BATCH_INGESTION_DEMO.md. Independent of the streaming jobs above.)
+./scripts/submit_batch_aidp.sh all
 
 # STOP
 kill -TERM "$(cat /tmp/streaming_gen.pid)"

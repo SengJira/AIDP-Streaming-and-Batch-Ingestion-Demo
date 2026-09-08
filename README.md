@@ -6,6 +6,13 @@
 > are in [docs/FEDERATED_QUERY_DEMO.md](docs/FEDERATED_QUERY_DEMO.md), and the
 > day-to-day start/stop procedure for the Kafka generator and Spark streaming
 > jobs is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
+>
+> **Batch ingestion demo:** `jobs/batch_ingestion_job.py` runs on the AIDP Spark
+> engine and ingests three different kinds of source — the
+> `js_mysql_customer360` data catalog over JDBC, CSV files in the object-storage
+> landing zone, and the Iceberg event table itself — into
+> `js_financial_ice.ingestion` with idempotent `MERGE` upserts and a run log. See
+> [docs/BATCH_INGESTION_DEMO.md](docs/BATCH_INGESTION_DEMO.md).
 
 A Streamlit application that connects securely to a Dell AI Data Platform (AIDP /
 Starburst Enterprise) endpoint with **PyStarburst** and answers a fixed,
@@ -53,7 +60,14 @@ git-ignored and must never be committed.
 | `fraud_queries.py` | Intent registry, query-plan IR, SQL renderer, PyStarburst compiler, result summaries |
 | `schema_inspector.py` | Table/column allowlist, live schema validation, join-match-rate measurement |
 | `scripts/check_join_match_rate.py` | Standalone diagnostic for cross-table `account_id` overlap |
+| `jobs/banking_streaming_job.py` | Spark Structured Streaming: Kafka -> Iceberg (runs on AIDP) |
+| `jobs/batch_ingestion_job.py` | Spark batch ingestion: data catalog + landing files + Iceberg rollup -> Iceberg, upserted |
+| `scripts/submit_batch_aidp.sh` | Submits the batch job to the AIDP Spark engine |
+| `scripts/stage_batch_assets.py` | Stages the JDBC drivers and the landing-zone CSV in object storage |
+| `sql/Iceberg_Batch_Tables.sql` | Reference DDL for the batch targets (`dim_*`, `fact_*`, `ingestion_audit`) |
+| `sql/07_batch_ingestion_validation.sql` | Post-run validation: idempotency, source agreement, lineage |
 | `tests/test_fraud_queries.py` | Offline unit tests (no AIDP connection required) |
+| `tests/test_batch_ingestion.py` | Offline unit tests for the batch job (needs `requirements-spark.txt`) |
 
 ## Supported questions
 
@@ -202,6 +216,14 @@ present rows from different tables as the same customer.**
 
 ```bash
 .venv/bin/python -m pytest tests/ -q
+```
+
+The batch-ingestion tests import the job module, so they need PySpark; without
+it they skip rather than fail:
+
+```bash
+pip install -r requirements-spark.txt
+.venv/bin/python -m pytest tests/test_batch_ingestion.py -q
 ```
 
 153 offline tests (no AIDP connection needed) cover: supported questions mapping

@@ -1,0 +1,13 @@
+# Extras for the Spark jobs in jobs/ — NOT needed to run the Streamlit app.
+#
+# On AIDP the Spark runtime comes from the cluster image, so this file only
+# matters locally: running tests/test_batch_ingestion.py, and exercising a job
+# against a throwaway warehouse with --catalog-type hadoop.
+#
+# Pinned to the AIDP image's Spark version so a local run reproduces cluster
+# behaviour rather than a newer Spark's.
+pyspark==3.5.7
+
+# Used by scripts/stage_batch_assets.py and scripts/stage_kafka_jars.py to put
+# JDBC drivers and landing-zone files in object storage.
+boto3==1.43.82
