@@ -310,7 +310,7 @@ def parse_args(argv=None):
 
     # Endpoints — arguments rather than Spark properties, because the AIDP CLI
     # rejects spark.kubernetes.driverEnv.* as reserved configuration.
-    p.add_argument("--kafka-brokers", default=env("KAFKA_BROKERS", "172.18.1.80:9092"))
+    p.add_argument("--kafka-brokers", default=env("KAFKA_BROKERS", "172.18.1.177:9092"))
     p.add_argument("--glue-endpoint", default=env(
         "GLUE_ENDPOINT",
         "http://managed-metastore.ddae.svc.cluster.local:8080/api/v1/glue"))
@@ -318,8 +318,11 @@ def parse_args(argv=None):
     p.add_argument("--glue-catalog-id", default=env("GLUE_CATALOG_ID", "js_banking_ice"))
     p.add_argument("--s3-endpoint", default=env("S3_ENDPOINT", "http://172.18.11.31:9020"))
     p.add_argument("--warehouse", default=env("WAREHOUSE", "s3://js-demo/warehouse/banking"))
+    # Checkpoints hold broker offsets, so they are namespaced per Kafka
+    # deployment. The 10.246.25.115 broker gets its own root; the old
+    # s3://js-demo/warehouse/banking/checkpoints tree is left untouched.
     p.add_argument("--checkpoint", default=env(
-        "CHECKPOINT", "s3://js-demo/warehouse/banking/checkpoints"))
+        "CHECKPOINT", "s3://js-demo/warehouse/banking/checkpoints-10-246-25-115"))
     p.add_argument("--catalog", default=env("CATALOG", "js_financial_ice"))
     p.add_argument("--db", default=env("DB", "banking"))
 

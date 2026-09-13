@@ -138,6 +138,11 @@ args=(
   --conf "spark.hadoop.fs.s3a.connection.ssl.enabled=false"
 )
 
+# Optional extra Spark confs as space-separated name=value pairs, e.g.
+# EXTRA_CONFS="spark.kubernetes.driver.request.cores=900m" when the pool is
+# short on free vcores.
+for _kv in ${EXTRA_CONFS:-}; do args+=(--conf "$_kv"); done
+
 [[ -n "$RESOURCE_POOL" ]] && args+=(--pool "$RESOURCE_POOL")
 [[ -n "$EXTRA_JARS" ]] && args+=(--jars "$EXTRA_JARS")
 
@@ -152,6 +157,8 @@ args+=(
   --num-partitions  "${NUM_PARTITIONS:-1}"
   --customers-reader "${CUSTOMERS_READER:-starburst}"
   --aidp-host       "${AIDP_HOST:-ddae.lab9bgp.com}"
+  --mysql-host      "${MYSQL_HOST:-172.18.1.177}"
+  --mysql-port      "${MYSQL_PORT:-3306}"
   --accounts-path   "${ACCOUNTS_PATH:-s3a://js-demo/landing/accounts}"
   --s3-endpoint     "${S3_ENDPOINT}"
   --glue-endpoint   "${GLUE_ENDPOINT:-http://managed-metastore.ddae.svc.cluster.local:8080/api/v1/glue}"

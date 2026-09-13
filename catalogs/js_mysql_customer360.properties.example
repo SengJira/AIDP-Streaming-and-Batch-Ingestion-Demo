@@ -9,12 +9,14 @@
 
 connector.name=mysql
 
-# 172.18.1.80 is the existing demo host that also runs the Kafka broker; no new
-# IP is allocated. It must be reachable on TCP 3306 from every AIDP worker node.
+# The demo host (primary 10.246.25.115) is dual-homed and also runs the Kafka
+# broker. The AIDP cluster cannot route to 10.246.25.x, so the catalog uses the
+# host's AIDP-subnet address. It must be reachable on TCP 3306 from every AIDP
+# worker node.
 # Do NOT append a database name here - the connector exposes MySQL databases as
 # Trino schemas, so `customer360` becomes the schema in
 # js_mysql_customer360.customer360.customers.
-connection-url=jdbc:mysql://172.18.1.80:3306
+connection-url=jdbc:mysql://172.18.1.177:3306
 
 # Dedicated read-only account (SELECT on customer360 only). Never use root.
 connection-user=starburst_ro

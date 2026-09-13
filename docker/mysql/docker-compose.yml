@@ -8,8 +8,9 @@
 #   docker compose --env-file docker/mysql/.env -f docker/mysql/docker-compose.yml up -d
 #
 # The published port is bound to MYSQL_BIND_ADDRESS (default 0.0.0.0) on the
-# existing host address 172.18.1.80 - the same host that already runs the Kafka
-# broker. No new IP is allocated. AIDP worker nodes connect to 172.18.1.80:3306.
+# demo host (primary 10.246.25.115, dual-homed) - the same host that runs the
+# Kafka broker. The AIDP cluster cannot route to 10.246.25.x, so AIDP worker
+# nodes connect to the AIDP-subnet address: 172.18.1.177:3306.
 
 services:
   mysql:

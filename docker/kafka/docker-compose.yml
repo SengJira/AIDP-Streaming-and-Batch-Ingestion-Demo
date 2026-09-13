@@ -1,0 +1,64 @@
+# Single-node Kafka (KRaft) for the AIDP streaming demo.
+#
+# No ZooKeeper: this broker runs combined broker+controller in KRaft mode on
+# the demo host (primary address 10.246.25.115) - the same host that runs the
+# MySQL Customer 360 container. No credentials are required: the lab uses
+# PLAINTEXT listeners.
+#
+#   docker compose -f docker/kafka/docker-compose.yml up -d
+#
+# Listeners:
+#   INTERNAL   kafka-1:29092        - container-to-container on this host
+#   EXTERNAL   172.18.1.177:9092    - the advertised address. This host is
+#                                    dual-homed: the AIDP cluster cannot route
+#                                    to 10.246.25.x, so clients are handed the
+#                                    ens36 address on the AIDP subnet. The port
+#                                    is still published on 0.0.0.0, so local
+#                                    clients may also reach 10.246.25.115:9092.
+#   CONTROLLER kafka-1:29093        - KRaft quorum (not a client endpoint)
+#
+# The advertised EXTERNAL address is overridable with KAFKA_EXTERNAL_ADDRESS if
+# the host ever moves; do NOT advertise a hostname the executors cannot resolve.
+
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: kafka-1
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:29092,EXTERNAL://${KAFKA_EXTERNAL_ADDRESS:-172.18.1.177}:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:29093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # Random KRaft cluster ID, generated once with
+      # `kafka-storage.sh random-uuid`. Not a secret; changing it would orphan
+      # the persisted log segments, so it stays fixed for this deployment.
+      CLUSTER_ID: mTed-0JdSUurlS55F4Nn5Q
+    ports:
+      - "${KAFKA_BIND_ADDRESS:-0.0.0.0}:9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 > /dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  kafka_data:
+    name: js_kafka_data

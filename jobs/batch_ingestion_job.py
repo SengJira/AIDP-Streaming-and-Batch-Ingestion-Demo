@@ -783,7 +783,7 @@ def parse_args(argv=None):
     p.add_argument("--source-catalog", default=env("SOURCE_CATALOG", "js_mysql_customer360"))
     p.add_argument("--source-schema", default=env("SOURCE_SCHEMA", "customer360"))
     p.add_argument("--source-table", default=env("SOURCE_TABLE", "customers"))
-    p.add_argument("--mysql-host", default=env("MYSQL_HOST", "172.18.1.80"))
+    p.add_argument("--mysql-host", default=env("MYSQL_HOST", "172.18.1.177"))
     p.add_argument("--mysql-port", type=int, default=int(env("MYSQL_PORT", "3306")))
     p.add_argument("--mysql-db", default=env("MYSQL_DATABASE", "customer360"))
     p.add_argument("--mysql-table", default=env("MYSQL_TABLE", "customers"))

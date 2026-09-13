@@ -17,7 +17,7 @@ Usage
 -----
     python generators/Streaming_gen.py \\
         --customer-file data/customer_accounts.csv \\
-        --bootstrap-server 172.18.1.80:9092 \\
+        --bootstrap-server 172.18.1.177:9092 \\
         --seed 42
 
 Run without ``--customer-file`` to keep the original behaviour of fully random
@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-BOOTSTRAP = "172.18.1.80:9092"
+BOOTSTRAP = "172.18.1.177:9092"
 
 TOPIC_PAYMENTS = "payments.raw"
 TOPIC_FRAUD = "fraud.signals"

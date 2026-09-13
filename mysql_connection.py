@@ -28,9 +28,10 @@ logger = logging.getLogger("mysql360")
 DEFAULT_ENV_FILE = Path(__file__).resolve().parent / "docker" / "mysql" / ".env"
 DEFAULT_DATABASE = "customer360"
 DEFAULT_PORT = 3306
-#: Host the AIDP worker nodes use. This is the existing demo host that already
-#: runs the Kafka broker - no new IP is allocated for MySQL.
-DEFAULT_HOST = "172.18.1.80"
+#: Host the AIDP worker nodes use. The demo host (10.246.25.115) is dual-homed;
+#: the AIDP cluster cannot route to 10.246.25.x, so the address on the AIDP
+#: subnet is the service endpoint. Same host also runs the Kafka broker.
+DEFAULT_HOST = "172.18.1.177"
 
 CUSTOMERS_TABLE = "customers"
 

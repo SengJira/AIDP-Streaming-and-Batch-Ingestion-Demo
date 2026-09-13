@@ -25,12 +25,13 @@ MySQL is independent of both and can stay running.
 Every new shell:
 
 ```bash
-cd /home/jumpuser/jirawut-demo
+cd ~/jirawut-demo/repo
 
 export SECRET_ID=s-aa4a1b9a5f6b47dd90c9661730a2a39c
 export S3_ACCESS_KEY='<s3 key>'
 export S3_SECRET_KEY='<s3 secret>'
 export DDPE_INSECURE=1
+export RESOURCE_POOL=default
 
 CLI=./dell-data-processing-engine/bin/dell-data-processing-engine
 $CLI login-with-credentials --insecure --role=jirawut_demo --username=jirawut --password='<password>'
@@ -59,8 +60,16 @@ Earliest offsets still retained:
 
 ```bash
 docker exec kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
-  --bootstrap-server 172.18.1.80:9092 --topic payments.raw --time earliest
+  --bootstrap-server 172.18.1.177:9092 --topic payments.raw --time earliest
 ```
+
+> **Checkpoint namespace.** Streaming state lives under
+> `s3://js-demo/warehouse/banking/checkpoints-10-246-25-115` — the Kafka broker
+> at `172.18.1.177:9092` was deployed fresh, and checkpoints record broker
+> offsets, so a new broker must not resume from the old broker's state. The
+> previous `s3://js-demo/warehouse/banking/checkpoints` tree is kept, untouched.
+> `submit_aidp.sh` passes `CHECKPOINT` through to the job as an application
+> argument; override it with `CHECKPOINT=s3://... ./scripts/submit_aidp.sh ...`.
 
 Where the checkpoints currently sit:
 
@@ -73,7 +82,7 @@ s3 = boto3.client("s3", endpoint_url="http://172.18.11.31:9020",
     aws_secret_access_key=os.environ["S3_SECRET_KEY"],
     config=Config(s3={"addressing_style": "path"}), region_name="us-east-1")
 for cp in ("payment_transactions_v3", "fraud_customer"):
-    prefix = f"warehouse/banking/checkpoints/{cp}/offsets/"
+    prefix = f"warehouse/banking/checkpoints-10-246-25-115/{cp}/offsets/"
     keys = sorted(
         (o["Key"] for o in s3.list_objects_v2(Bucket="js-demo", Prefix=prefix).get("Contents", [])),
         key=lambda k: int(k.rsplit("/", 1)[-1]) if k.rsplit("/", 1)[-1].isdigit() else -1,
@@ -106,7 +115,9 @@ Each prints an `instanceId` such as `b-94939d88417e4b15ac4ace8200f73e9f`. Allow
 roughly 60 seconds for the driver and executors to register.
 
 Other knobs: `STARTING_OFFSETS=earliest|latest` (only honoured on a *fresh*
-checkpoint), `EXECUTOR_MEMORY`, `NUM_EXECUTORS`, `RESOURCE_POOL`.
+checkpoint), `CHECKPOINT` (default the `checkpoints-10-246-25-115` namespace),
+`KAFKA_BROKERS` (default `172.18.1.177:9092`), `EXECUTOR_MEMORY`,
+`NUM_EXECUTORS`, `RESOURCE_POOL` (required on this cluster — use `default`).
 
 ### 1c. Start the generator
 
@@ -116,7 +127,7 @@ checkpoint), `EXECUTOR_MEMORY`, `NUM_EXECUTORS`, `RESOURCE_POOL`.
 source .venv/bin/activate
 python generators/Streaming_gen.py \
   --customer-file data/customer_accounts.csv \
-  --bootstrap-server 172.18.1.80:9092 \
+  --bootstrap-server 172.18.1.177:9092 \
   --seed 42
 ```
 
@@ -125,7 +136,7 @@ python generators/Streaming_gen.py \
 ```bash
 nohup .venv/bin/python generators/Streaming_gen.py \
   --customer-file data/customer_accounts.csv \
-  --bootstrap-server 172.18.1.80:9092 \
+  --bootstrap-server 172.18.1.177:9092 \
   --seed 42 \
   --pid-file /tmp/streaming_gen.pid \
   > /tmp/streaming_gen.log 2>&1 &
@@ -153,7 +164,7 @@ $CLI --insecure instance list
 
 # 2. Kafka advancing - run twice, the numbers must increase
 docker exec kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
-  --bootstrap-server 172.18.1.80:9092 --topic payments.raw
+  --bootstrap-server 172.18.1.177:9092 --topic payments.raw
 
 # 3. Rows actually landing in Iceberg, plus the match rate
 python scripts/validate_federated_demo.py
@@ -203,9 +214,9 @@ point at a wrapper rather than the interpreter.
 Confirm production has stopped — the offsets must be identical:
 
 ```bash
-docker exec kafka-1 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server 172.18.1.80:9092 --topic payments.raw
+docker exec kafka-1 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server 172.18.1.177:9092 --topic payments.raw
 sleep 10
-docker exec kafka-1 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server 172.18.1.80:9092 --topic payments.raw
+docker exec kafka-1 /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server 172.18.1.177:9092 --topic payments.raw
 ```
 
 ### 2b. Then the Spark jobs
@@ -259,7 +270,7 @@ MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh events
 MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh payments
 MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh aggregates
 nohup .venv/bin/python generators/Streaming_gen.py \
-  --customer-file data/customer_accounts.csv --bootstrap-server 172.18.1.80:9092 \
+  --customer-file data/customer_accounts.csv --bootstrap-server 172.18.1.177:9092 \
   --seed 42 --pid-file /tmp/streaming_gen.pid > /tmp/streaming_gen.log 2>&1 &
 
 # CHECK

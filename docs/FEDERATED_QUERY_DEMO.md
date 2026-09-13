@@ -9,7 +9,7 @@ in a single query. Nothing is copied between the two systems.
 ## 1. Architecture overview
 
 ```
-  synthetic generator                    Kafka (172.18.1.80:9092)
+  synthetic generator                    Kafka (172.18.1.177:9092)
   scripts/generate_customer360.py            payments.raw
         |                                    fraud.signals
         |  data/customer_accounts.csv        customer.events
@@ -39,8 +39,8 @@ random account ID per event, so cross-system joins matched essentially never.
 
 | Layer | Technology | Location |
 | --- | --- | --- |
-| Customer master data | MySQL 8.0.43 | `js-mysql-customer360` container on `172.18.1.80:3306` |
-| Event streams | Kafka | `172.18.1.80:9092` |
+| Customer master data | MySQL 8.0.43 | `js-mysql-customer360` container on `172.18.1.177:3306` |
+| Event streams | Kafka | `172.18.1.177:9092` |
 | Event storage | Apache Iceberg (Parquet on S3, Glue metastore) | `js_financial_ice.banking` |
 | Query federation | Starburst Enterprise on Dell AIDP | `https://ddae.lab9bgp.com/` |
 | Application | PyStarburst + Streamlit | `fraud_analytics_app.py` |
@@ -63,19 +63,25 @@ random account ID per event, so cross-system joins matched essentially never.
 
 | From | To | Port | Why |
 | --- | --- | --- | --- |
-| AIDP **worker** nodes | `172.18.1.80` | 3306 | The MySQL connector reads from every worker, not just the coordinator |
-| This host | `172.18.1.80` | 9092 | Kafka producer |
+| AIDP **worker** nodes | `172.18.1.177` | 3306 | The MySQL connector reads from every worker, not just the coordinator |
+| This host | `172.18.1.177` | 9092 | Kafka producer |
 | This host | `ddae.lab9bgp.com` | 443 | Trino/PyStarburst client |
-| Spark executors | `172.18.1.80` | 9092 | Kafka consumer |
+| Spark executors | `172.18.1.177` | 9092 | Kafka consumer |
 
-MySQL publishes on `0.0.0.0:3306` (override with `MYSQL_BIND_ADDRESS`). No new
-IP is allocated — it shares the existing demo host that already runs Kafka.
+The demo host is **dual-homed**: primary `10.246.25.115` (management/SSH) plus
+`172.18.1.177` on the AIDP subnet. The AIDP cluster cannot route to
+`10.246.25.x`, so every cluster-facing endpoint uses `172.18.1.177`. Services
+still publish on `0.0.0.0`, so local clients can also reach them via
+`10.246.25.115` — but AIDP must always use `172.18.1.177`.
+
+MySQL publishes on `0.0.0.0:3306` (override with `MYSQL_BIND_ADDRESS`). It
+shares the demo host that also runs the Kafka broker.
 
 Verify reachability before blaming the catalog:
 
 ```bash
 ss -ltnp | grep 3306
-python -c "import socket; socket.create_connection(('172.18.1.80',3306),timeout=5); print('reachable')"
+python -c "import socket; socket.create_connection(('172.18.1.177',3306),timeout=5); print('reachable')"
 ```
 
 ---
@@ -83,7 +89,7 @@ python -c "import socket; socket.create_connection(('172.18.1.80',3306),timeout=
 ## 4. MySQL Docker installation
 
 ```bash
-cd /home/jumpuser/jirawut-demo
+cd ~/jirawut-demo/repo
 cp docker/mysql/.env.example docker/mysql/.env
 # Edit docker/mysql/.env and set strong passwords, then:
 chmod 600 docker/mysql/.env
@@ -200,7 +206,7 @@ multiply every federated aggregate.
 Use `--truncate` to wipe first (destructive), `--batch-size` to tune batching.
 
 If MySQL runs on a different host from the loader, set `MYSQL_HOST`
-(the default `172.18.1.80` is the AIDP-facing address):
+(the default `172.18.1.177` is the AIDP-facing address):
 
 ```bash
 MYSQL_HOST=127.0.0.1 python scripts/load_customer360.py --input data/customer360.csv
@@ -213,7 +219,7 @@ MYSQL_HOST=127.0.0.1 python scripts/load_customer360.py --input data/customer360
 ```bash
 python generators/Streaming_gen.py \
   --customer-file data/customer_accounts.csv \
-  --bootstrap-server 172.18.1.80:9092 \
+  --bootstrap-server 172.18.1.177:9092 \
   --seed 42
 ```
 
@@ -273,7 +279,7 @@ administrator the template in
 
 ```properties
 connector.name=mysql
-connection-url=jdbc:mysql://172.18.1.80:3306
+connection-url=jdbc:mysql://172.18.1.177:3306
 connection-user=starburst_ro
 connection-password=<value of MYSQL_STARBURST_PASSWORD>
 ```
@@ -288,7 +294,7 @@ Critical details:
 * **Do not append a database name** to `connection-url`. The connector maps
   MySQL databases to Trino schemas, giving
   `js_mysql_customer360.customer360.customers`.
-* `172.18.1.80:3306` must be reachable from every **worker**, not only the coordinator.
+* `172.18.1.177:3306` must be reachable from every **worker**, not only the coordinator.
 * Use `starburst_ro`, never `root`.
 
 Verify:
@@ -401,7 +407,7 @@ fails at query time. Confirm MySQL listens on `0.0.0.0` (`ss -ltnp | grep 3306`)
 rather than `127.0.0.1`, and that `MYSQL_BIND_ADDRESS` is not set to loopback.
 
 **Port 3306 is blocked**
-`python -c "import socket; socket.create_connection(('172.18.1.80',3306),timeout=5)"`.
+`python -c "import socket; socket.create_connection(('172.18.1.177',3306),timeout=5)"`.
 If that hangs, open the port between the AIDP node network and this host.
 
 **MySQL user is restricted to localhost**
@@ -442,11 +448,11 @@ checkpoint points at, and the source skips the gap at only
 
 ```bash
 docker exec kafka-1 /opt/kafka/bin/kafka-get-offsets.sh \
-  --bootstrap-server 172.18.1.80:9092 --topic payments.raw --time earliest
+  --bootstrap-server 172.18.1.177:9092 --topic payments.raw --time earliest
 ```
 
 and compare with the checkpoint under
-`s3://js-demo/warehouse/banking/checkpoints/<stream>/offsets/`. If the
+`s3://js-demo/warehouse/banking/checkpoints-10-246-25-115/<stream>/offsets/`. If the
 checkpoint is far below the earliest retained offset, resubmit with a large
 window so one batch spans the gap:
 

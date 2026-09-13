@@ -143,18 +143,25 @@ args=(
 # span the gap. Check for that condition with:
 #   kafka-get-offsets.sh --topic payments.raw --time earliest
 # and compare against the checkpoint under
-#   s3://js-demo/warehouse/banking/checkpoints/<stream>/offsets/
+#   s3://js-demo/warehouse/banking/checkpoints-10-246-25-115/<stream>/offsets/
 MAX_OFFSETS="${MAX_OFFSETS:-5000}"
 # earliest | latest. Only applies on a FRESH checkpoint; an existing checkpoint
 # always wins, which is why the offset gap above has to be handled explicitly.
 STARTING_OFFSETS="${STARTING_OFFSETS:-latest}"
+
+# Checkpoint root for the streaming state. The default is the namespace for the
+# Kafka broker on the new demo host (172.18.1.177) - checkpoints carry broker
+# offsets, so a new broker needs a fresh namespace. The pre-migration
+# checkpoints under s3://js-demo/warehouse/banking/checkpoints are untouched.
+CHECKPOINT="${CHECKPOINT:-s3://js-demo/warehouse/banking/checkpoints-10-246-25-115}"
 
 args+=(
   "$APP_PATH"
   --stream "$STREAM"
   --max-offsets      "${MAX_OFFSETS}"
   --starting-offsets "${STARTING_OFFSETS}"
-  --kafka-brokers   "${KAFKA_BROKERS:-172.18.1.80:9092}"
+  --kafka-brokers   "${KAFKA_BROKERS:-172.18.1.177:9092}"
+  --checkpoint      "${CHECKPOINT}"
   --s3-endpoint     "${S3_ENDPOINT:-http://172.18.11.31:9020}"
   --glue-endpoint   "${GLUE_ENDPOINT:-http://managed-metastore.ddae.svc.cluster.local:8080/api/v1/glue}"
   --glue-catalog-id "${GLUE_CATALOG_ID:-js_banking_ice}"
