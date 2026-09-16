@@ -9,6 +9,19 @@ finite job with its own procedure — see
 [BATCH_INGESTION_DEMO.md](BATCH_INGESTION_DEMO.md); it is independent of the
 streaming jobs and can run whether or not they are up.
 
+## Host layout
+
+The demo host `kb` is **dual-homed**:
+
+| Interface | Address | Used for |
+| --- | --- | --- |
+| `ens35` | `10.246.25.115` | Management / SSH, generator clients |
+| `ens36` | `172.18.1.177` | **Every AIDP-facing endpoint** — Kafka `:9092`, MySQL `:3306` |
+
+The AIDP cluster cannot route to `10.246.25.x`. Both services publish on
+`0.0.0.0`, so `10.246.25.115` also answers locally — but jobs, the catalog and
+docs always use `172.18.1.177`.
+
 **Order matters**
 
 | | Order | Why |
@@ -35,6 +48,15 @@ export RESOURCE_POOL=default
 
 CLI=./dell-data-processing-engine/bin/dell-data-processing-engine
 $CLI login-with-credentials --insecure --role=jirawut_demo --username=jirawut --password='<password>'
+```
+
+`SECRET_ID` above is the S3/AWS key set used by the streaming jobs. The **batch
+job additionally needs the AIDP data-catalog credentials**, so for batch runs
+export both secret sets comma-separated:
+
+```bash
+export SECRET_ID=s-aa4a1b9a5f6b47dd90c9661730a2a39c,s-e0c1e741c43d4397b6ef55954c033cd9
+export AIDP_VERIFY_TLS=false    # lab coordinator uses the private TitanCA
 ```
 
 The DDPE access token is refreshed only while the CLI is in use and expires
@@ -106,18 +128,26 @@ range. It is non-destructive — preferable to deleting checkpoints.
 ### 1b. Submit the three Spark jobs
 
 ```bash
-MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh events        # fraud_alerts, customer_events, aml_alerts
-MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh payments      # payment_transactions
-MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh aggregates    # payment_agg
+MAX_OFFSETS=1000000 NUM_EXECUTORS=1 EXECUTOR_CORES=1 ./scripts/submit_aidp.sh events        # fraud_alerts, customer_events, aml_alerts
+MAX_OFFSETS=1000000 NUM_EXECUTORS=1 EXECUTOR_CORES=1 ./scripts/submit_aidp.sh payments      # payment_transactions
+MAX_OFFSETS=1000000 NUM_EXECUTORS=1 EXECUTOR_CORES=1 ./scripts/submit_aidp.sh aggregates    # payment_agg
 ```
 
 Each prints an `instanceId` such as `b-94939d88417e4b15ac4ace8200f73e9f`. Allow
 roughly 60 seconds for the driver and executors to register.
 
+> **Size the streams small.** The `default` pool is capped at ~20 vcores / 32 GiB
+> and it is shared with other workloads (e.g. the `kb1` connect instance). Three
+> streaming jobs at the default `NUM_EXECUTORS=2 EXECUTOR_CORES=2` fill the pool
+> and leave `batch-ingestion-*` submissions stuck in `AWAITING_RESOURCES`. One
+> executor × 1 core per stream handles the ~65 events/s demo rate with headroom
+> left for the batch job — use the flags above.
+
 Other knobs: `STARTING_OFFSETS=earliest|latest` (only honoured on a *fresh*
 checkpoint), `CHECKPOINT` (default the `checkpoints-10-246-25-115` namespace),
 `KAFKA_BROKERS` (default `172.18.1.177:9092`), `EXECUTOR_MEMORY`,
-`NUM_EXECUTORS`, `RESOURCE_POOL` (required on this cluster — use `default`).
+`NUM_EXECUTORS`, `EXECUTOR_CORES`, `RESOURCE_POOL` (required on this cluster —
+use `default`), `EXTRA_JARS`.
 
 ### 1c. Start the generator
 
@@ -232,11 +262,12 @@ echo y | $CLI --insecure instance delete b-<aggregates-id>
 `echo y |` is required: `instance delete` prompts interactively and raises a
 `NullPointerException` when stdin is empty.
 
-Stop every batch job at once, leaving notebooks alone:
+Stop every streaming job at once, leaving notebooks and connect instances
+(e.g. `kb1`, owned by another role) alone:
 
 ```bash
 $CLI --insecure --format=json instance list 2>/dev/null | sed -n '/\[/,$p' | \
-python3 -c "import sys,json;[print(i['instanceId']) for i in json.load(sys.stdin) if i['type']!='NOTEBOOK']" | \
+python3 -c "import sys,json;[print(i['instanceId']) for i in json.load(sys.stdin) if (i.get('name') or '').startswith('banking-streaming-')]" | \
 while read -r id; do echo y | $CLI --insecure instance delete "$id"; done
 ```
 
@@ -265,10 +296,10 @@ docker inspect -f '{{.State.Health.Status}}' js-mysql-customer360   # MySQL unaf
 ## 4. Quick reference
 
 ```bash
-# START
-MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh events
-MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh payments
-MAX_OFFSETS=1000000 ./scripts/submit_aidp.sh aggregates
+# START (1 executor x 1 core per stream — leaves pool headroom for batch)
+MAX_OFFSETS=1000000 NUM_EXECUTORS=1 EXECUTOR_CORES=1 ./scripts/submit_aidp.sh events
+MAX_OFFSETS=1000000 NUM_EXECUTORS=1 EXECUTOR_CORES=1 ./scripts/submit_aidp.sh payments
+MAX_OFFSETS=1000000 NUM_EXECUTORS=1 EXECUTOR_CORES=1 ./scripts/submit_aidp.sh aggregates
 nohup .venv/bin/python generators/Streaming_gen.py \
   --customer-file data/customer_accounts.csv --bootstrap-server 172.18.1.177:9092 \
   --seed 42 --pid-file /tmp/streaming_gen.pid > /tmp/streaming_gen.log 2>&1 &
@@ -277,13 +308,14 @@ nohup .venv/bin/python generators/Streaming_gen.py \
 python scripts/validate_federated_demo.py
 
 # BATCH (finite job — reference tables and the daily rollup; see
-# docs/BATCH_INGESTION_DEMO.md. Independent of the streaming jobs above.)
-./scripts/submit_batch_aidp.sh all
+# docs/BATCH_INGESTION_DEMO.md. Needs the second SECRET_ID and AIDP_VERIFY_TLS
+# from §0. Independent of the streaming jobs above.)
+NUM_EXECUTORS=1 EXECUTOR_CORES=1 EXECUTOR_MEMORY=2G ./scripts/submit_batch_aidp.sh all
 
 # STOP
 kill -TERM "$(cat /tmp/streaming_gen.pid)"
 $CLI --insecure --format=json instance list 2>/dev/null | sed -n '/\[/,$p' | \
-python3 -c "import sys,json;[print(i['instanceId']) for i in json.load(sys.stdin) if i['type']!='NOTEBOOK']" | \
+python3 -c "import sys,json;[print(i['instanceId']) for i in json.load(sys.stdin) if (i.get('name') or '').startswith('banking-streaming-')]" | \
 while read -r id; do echo y | $CLI --insecure instance delete "$id"; done
 ```
 
@@ -294,9 +326,14 @@ while read -r id; do echo y | $CLI --insecure instance delete "$id"; done
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Jobs `RUNNING`, Iceberg not growing, snapshots show `changed-partition-count = 0` | Checkpoint below Kafka's earliest retained offset | Resubmit with `MAX_OFFSETS=1000000` (§1a) |
+| Job `FAILED`, log shows `TimeoutException: Timed out waiting for a node assignment` | Spark pods cannot route to the broker address | Use `KAFKA_BROKERS=172.18.1.177:9092` — the AIDP cluster cannot reach `10.246.25.x` (see Host layout) |
+| `AWAITING_RESOURCES`, `AVAILABLE: ... vcore:NNN` below request | `default` pool exhausted (20 vcores shared with `kb1`) | Submit streams with `NUM_EXECUTORS=1 EXECUTOR_CORES=1` (§1b); batch with the same plus `EXECUTOR_MEMORY=2G` |
+| `Application name already exists: banking-streaming-*` | A previous instance with that name still exists (possibly `AWAITING_RESOURCES` or deleting slowly) | `instance list -a`, delete the stale id, resubmit |
+| `This has already been submitted` / `Reserved configuration cannot be used` | A platform-reserved Spark conf was passed via `--conf` / `EXTRA_CONFS` | Remove it; driver sizing is platform-fixed, only executor sizing is user-set |
 | `You are not logged in or your access token has expired` | DDPE token idle > 30 min | Re-run the login (§0) |
 | `instance delete` throws `NullPointerException` | Interactive prompt, empty stdin | Pipe `echo y \|` |
 | `kill -INT` does nothing (older builds) | Background job inherited `SIGINT = SIG_IGN` | Use `kill -TERM`, or update to the build with signal handlers |
 | `Libraries for snappy compression codec not found` | `python-snappy` missing | `pip install python-snappy`, or run with `--compression gzip` |
 | Generator runs but match rate ~0% | Started without `--customer-file` | Restart with the account pool CSV |
 | `instance logs` frozen at startup | It returns a one-off snapshot, not a live tail | Judge progress from Iceberg snapshots instead |
+| Job fails on S3, host `ping 172.18.11.31` hangs | A local Docker `172.18.0.0/16` bridge shadows the S3 subnet | `sudo ip route add 172.18.11.0/24 via 172.18.1.254` (not reboot-persistent) |

@@ -45,7 +45,9 @@ has, and each one raises a different problem the job has to solve:
   than by opening a second connection to MySQL. One access path, one set of
   read-only credentials, one audit trail. The catalog is reached with the Trino
   JDBC driver, so Spark benefits from connector pushdown on the source side.
-  (`--customers-reader mysql` bypasses it when the coordinator is unavailable.)
+  (`--customers-reader mysql` bypasses it when the coordinator is unavailable —
+  it reads `172.18.1.177:3306` directly, the AIDP-subnet interface of the
+  dual-homed demo host; the cluster cannot route to `10.246.25.x`.)
 * **The landing zone.** `accounts` has no change column, so there is nothing to
   read incrementally. It is loaded as a full snapshot and made cheap by the
   upsert: a re-drop of the same file refreshes rows instead of duplicating them.
