@@ -112,11 +112,14 @@ EXTRA_JARS="${EXTRA_JARS:-$JDBC_JARS}"
 
 # OpenLineage (opt-in, OPENLINEAGE=1): emits run events to the
 # openlineage.events Kafka topic for the OpenMetadata consumer. The agent jar
-# is shaded, so it is a single extra jar staged under JARS_PREFIX.
+# is shaded, so it is a single extra jar staged under JARS_PREFIX — but its
+# listener still needs kafka-clients on the classpath (unlike the streaming
+# job, this job's jars do not already include it).
 OPENLINEAGE="${OPENLINEAGE:-0}"
 OPENLINEAGE_VERSION="${OPENLINEAGE_VERSION:-1.47.1}"
 if [[ "$OPENLINEAGE" == "1" ]]; then
   EXTRA_JARS+=",${JARS_PREFIX}/openlineage-spark_2.12-${OPENLINEAGE_VERSION}.jar"
+  EXTRA_JARS+=",${JARS_PREFIX}/kafka-clients-3.4.1.jar"
 fi
 
 # Credentials for the s3a:// jar download itself. This happens in spark-submit
@@ -161,6 +164,8 @@ if [[ "$OPENLINEAGE" == "1" ]]; then
     --conf "spark.openlineage.transport.type=kafka"
     --conf "spark.openlineage.transport.topicName=openlineage.events"
     --conf "spark.openlineage.transport.properties.bootstrap.servers=${KAFKA_BROKERS:-172.18.1.177:9092}"
+    --conf "spark.openlineage.transport.properties.key.serializer=org.apache.kafka.common.serialization.StringSerializer"
+    --conf "spark.openlineage.transport.properties.value.serializer=org.apache.kafka.common.serialization.StringSerializer"
     --conf "spark.openlineage.namespace=${OPENLINEAGE_NAMESPACE:-aidp-spark}"
     --conf "spark.openlineage.appName=batch-ingestion-${SOURCE//_/-}"
     --conf "spark.openlineage.parentJobNamespace=${OPENLINEAGE_NAMESPACE:-aidp-spark}"

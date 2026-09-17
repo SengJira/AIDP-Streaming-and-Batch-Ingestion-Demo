@@ -317,12 +317,22 @@ How OpenMetadata resolves it:
 - Only `COMPLETE` events are processed; the OM pipeline entity is named
   `{parentJobNamespace}-{parentJobName}` (the scripts set these via
   `spark.openlineage.parent*` — without a parent facet events are dropped).
+  The agent normalizes names to snake_case, so entities appear as
+  `aidp-spark-banking_streaming_payments`, `aidp-spark-batch_ingestion_*`.
 - Lineage edges form only between datasets whose names resolve to OM tables
   (`schema.table`, matched against `dbServiceNames = js_aidp_starburst`).
-  Iceberg outputs like `banking.payment_transactions` resolve; Kafka inputs
-  like `payments.raw` do not (schema `payments` is not an ingested schema), so
-  streaming jobs show as pipeline entities without table edges, while batch
-  jobs (`banking.* → ingestion.*`) get real edges.
+
+**Current limitation.** The AIDP image loads connector jars (Iceberg) on the
+system classpath while `--jars` land in a child classloader, so the
+OpenLineage agent cannot use Iceberg's `SparkOpenLineageExtensionProvider` —
+events arrive with inputs but **no output datasets**, meaning jobs appear in
+OM as pipeline entities with run history but no table-level edges. Kafka
+inputs (`payments.raw`) also do not resolve to OM tables. Table edges require
+the openlineage jar on the platform classpath (Spark image level), which is a
+platform change.
+
+Also note: `submit_batch_aidp.sh` adds `kafka-clients` alongside the agent —
+without it the listener fails to load and the batch driver dies at init.
 
 Verify events are flowing:
 

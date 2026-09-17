@@ -153,6 +153,8 @@ if [[ "$OPENLINEAGE" == "1" ]]; then
     --conf "spark.openlineage.transport.type=kafka"
     --conf "spark.openlineage.transport.topicName=openlineage.events"
     --conf "spark.openlineage.transport.properties.bootstrap.servers=${KAFKA_BROKERS:-172.18.1.177:9092}"
+    --conf "spark.openlineage.transport.properties.key.serializer=org.apache.kafka.common.serialization.StringSerializer"
+    --conf "spark.openlineage.transport.properties.value.serializer=org.apache.kafka.common.serialization.StringSerializer"
     --conf "spark.openlineage.namespace=${OPENLINEAGE_NAMESPACE:-aidp-spark}"
     --conf "spark.openlineage.appName=banking-streaming-${STREAM}"
     --conf "spark.openlineage.parentJobNamespace=${OPENLINEAGE_NAMESPACE:-aidp-spark}"
