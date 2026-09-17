@@ -281,7 +281,64 @@ docker inspect -f '{{.State.Health.Status}}' js-mysql-customer360   # MySQL unaf
 
 ---
 
-## 3. What stopping does and does not do
+## 3. OpenLineage lineage (optional)
+
+Spark run lineage flows through OpenLineage into OpenMetadata:
+
+```
+Spark job ──openlineage-spark agent──▶ Kafka topic openlineage.events
+        ──OpenMetadata OpenLineage consumer──▶ Pipeline entities + edges
+```
+
+The pieces are already deployed:
+
+| Piece | Value |
+| --- | --- |
+| Agent jar | `s3a://js-demo/jars/openlineage-spark_2.12-1.47.1.jar` (shaded, staged once) |
+| Kafka topic | `openlineage.events` on `172.18.1.177:9092` |
+| OM pipeline service | `js_openlineage` (Kafka consumer, PLAINTEXT) |
+| OM ingestion pipeline | `js_openlineage_metadata` — Airflow DAG on `*/5 * * * *`, so events land in OM within ~5 min of a run |
+
+To submit with the agent, set `OPENLINEAGE=1` — both submit scripts then add
+the jar plus `spark.extraListeners` and the `spark.openlineage.transport.*`
+Kafka confs automatically:
+
+```bash
+OPENLINEAGE=1 NUM_EXECUTORS=1 EXECUTOR_CORES=1 ./scripts/submit_aidp.sh payments
+OPENLINEAGE=1 ./scripts/submit_batch_aidp.sh all
+```
+
+Knobs: `OPENLINEAGE_VERSION` (default `1.47.1`), `OPENLINEAGE_NAMESPACE`
+(default `aidp-spark` — the job namespace under which OM files the runs), and
+`KAFKA_BROKERS` is reused for the transport bootstrap servers.
+
+How OpenMetadata resolves it:
+
+- Only `COMPLETE` events are processed; the OM pipeline entity is named
+  `{parentJobNamespace}-{parentJobName}` (the scripts set these via
+  `spark.openlineage.parent*` — without a parent facet events are dropped).
+- Lineage edges form only between datasets whose names resolve to OM tables
+  (`schema.table`, matched against `dbServiceNames = js_aidp_starburst`).
+  Iceberg outputs like `banking.payment_transactions` resolve; Kafka inputs
+  like `payments.raw` do not (schema `payments` is not an ingested schema), so
+  streaming jobs show as pipeline entities without table edges, while batch
+  jobs (`banking.* → ingestion.*`) get real edges.
+
+Verify events are flowing:
+
+```bash
+docker exec kafka-1 /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server 172.18.1.177:9092 --topic openlineage.events \
+  --from-beginning --max-messages 5
+```
+
+Then look under **Pipelines → `js_openlineage`** in OpenMetadata
+(`http://10.246.25.115:8585`) for the `banking-streaming-*` /
+`batch-ingestion-*` job entities and their table edges.
+
+---
+
+## 4. What stopping does and does not do
 
 | | Effect |
 | --- | --- |
@@ -293,7 +350,7 @@ docker inspect -f '{{.State.Health.Status}}' js-mysql-customer360   # MySQL unaf
 
 ---
 
-## 4. Quick reference
+## 5. Quick reference
 
 ```bash
 # START (1 executor x 1 core per stream — leaves pool headroom for batch)
@@ -321,7 +378,7 @@ while read -r id; do echo y | $CLI --insecure instance delete "$id"; done
 
 ---
 
-## 5. Common failures
+## 6. Common failures
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
@@ -337,3 +394,4 @@ while read -r id; do echo y | $CLI --insecure instance delete "$id"; done
 | Generator runs but match rate ~0% | Started without `--customer-file` | Restart with the account pool CSV |
 | `instance logs` frozen at startup | It returns a one-off snapshot, not a live tail | Judge progress from Iceberg snapshots instead |
 | Job fails on S3, host `ping 172.18.11.31` hangs | A local Docker `172.18.0.0/16` bridge shadows the S3 subnet | `sudo ip route add 172.18.11.0/24 via 172.18.1.254` (not reboot-persistent) |
+| `OPENLINEAGE=1` job runs but no entities appear in OM | The `js_openlineage_metadata` DAG is unscheduled or paused | Check the topic has events (§3 consumer snippet), then trigger/deploy the pipeline in OM → Settings → Pipeline Services |

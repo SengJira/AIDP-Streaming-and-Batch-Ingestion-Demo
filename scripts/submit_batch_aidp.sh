@@ -110,6 +110,15 @@ JDBC_JARS="${JARS_PREFIX}/trino-jdbc-${TRINO_JDBC_VERSION}.jar"
 JDBC_JARS+=",${JARS_PREFIX}/mysql-connector-j-${MYSQL_CONNECTOR_VERSION}.jar"
 EXTRA_JARS="${EXTRA_JARS:-$JDBC_JARS}"
 
+# OpenLineage (opt-in, OPENLINEAGE=1): emits run events to the
+# openlineage.events Kafka topic for the OpenMetadata consumer. The agent jar
+# is shaded, so it is a single extra jar staged under JARS_PREFIX.
+OPENLINEAGE="${OPENLINEAGE:-0}"
+OPENLINEAGE_VERSION="${OPENLINEAGE_VERSION:-1.47.1}"
+if [[ "$OPENLINEAGE" == "1" ]]; then
+  EXTRA_JARS+=",${JARS_PREFIX}/openlineage-spark_2.12-${OPENLINEAGE_VERSION}.jar"
+fi
+
 # Credentials for the s3a:// jar download itself. This happens in spark-submit
 # before the application runs, so it cannot use the job's own catalog config.
 # --save-configuration=false keeps these keys out of the stored instance config.
@@ -142,6 +151,23 @@ args=(
 # EXTRA_CONFS="spark.kubernetes.driver.request.cores=900m" when the pool is
 # short on free vcores.
 for _kv in ${EXTRA_CONFS:-}; do args+=(--conf "$_kv"); done
+
+if [[ "$OPENLINEAGE" == "1" ]]; then
+  # The OpenMetadata consumer only keeps COMPLETE events and derives the OM
+  # pipeline name from run.facets.parent.job — so the agent must be given a
+  # parent job identity or every event is dropped as malformed.
+  args+=(
+    --conf "spark.extraListeners=io.openlineage.spark.agent.OpenLineageSparkListener"
+    --conf "spark.openlineage.transport.type=kafka"
+    --conf "spark.openlineage.transport.topicName=openlineage.events"
+    --conf "spark.openlineage.transport.properties.bootstrap.servers=${KAFKA_BROKERS:-172.18.1.177:9092}"
+    --conf "spark.openlineage.namespace=${OPENLINEAGE_NAMESPACE:-aidp-spark}"
+    --conf "spark.openlineage.appName=batch-ingestion-${SOURCE//_/-}"
+    --conf "spark.openlineage.parentJobNamespace=${OPENLINEAGE_NAMESPACE:-aidp-spark}"
+    --conf "spark.openlineage.parentJobName=batch-ingestion-${SOURCE//_/-}"
+    --conf "spark.openlineage.parentRunId=$(cat /proc/sys/kernel/random/uuid)"
+  )
+fi
 
 [[ -n "$RESOURCE_POOL" ]] && args+=(--pool "$RESOURCE_POOL")
 [[ -n "$EXTRA_JARS" ]] && args+=(--jars "$EXTRA_JARS")
